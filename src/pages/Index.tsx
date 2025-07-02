@@ -64,6 +64,7 @@ const Index = () => {
   const addLog = (type: LogEntry["type"], message: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setLogs(prev => [...prev, { timestamp, message, type }]);
+    console.log(`[${type.toUpperCase()}] ${message}`);
   };
 
   // Handle opening configuration modal
@@ -100,13 +101,22 @@ const Index = () => {
         throw new Error("Username does not match stored credentials");
       }
 
+      addLog("info", `Loaded credentials for user: ${decryptedCredentials.user.username}`);
+      addLog("info", `API Base URL: ${decryptedCredentials.api.base_url}`);
+      addLog("info", `API Config: ${decryptedCredentials.api.config}`);
+
       // Create API service instance with the decrypted credentials
       const api = new ApiService(decryptedCredentials.api, decryptedCredentials.user);
       
       // Test connection using the actual user credentials (not encryption password)
       addLog("info", "Testing API connection...");
       const testResult = await api.testConnection();
+      
       if (!testResult.success) {
+        addLog("error", `Connection test failed: ${testResult.error}`);
+        if (testResult.details) {
+          addLog("info", `Test details: ${JSON.stringify(testResult.details, null, 2)}`);
+        }
         throw new Error(testResult.error || "Connection test failed");
       }
 
@@ -129,6 +139,8 @@ const Index = () => {
         errorMessage = "Invalid encryption password. Please enter the password you used when configuring the connection.";
       } else if (error.message.includes("Username does not match")) {
         errorMessage = "Username does not match the configured credentials. Please check your username.";
+      } else if (error.message.includes("Network error") || error.message.includes("Failed to fetch")) {
+        errorMessage = "Cannot reach the API server. Please check:\n• Server URL is correct\n• Server is running\n• Network connection\n• Firewall settings";
       }
       
       toast({
@@ -363,12 +375,18 @@ const Index = () => {
       
       if (result.success) {
         addLog("success", "API connection test successful");
+        if (result.details) {
+          addLog("info", `Connection details: ${JSON.stringify(result.details, null, 2)}`);
+        }
         toast({
           title: "Connection Test",
           description: "✅ Successfully connected to the API!",
         });
       } else {
         addLog("error", `API connection test failed: ${result.error}`);
+        if (result.details) {
+          addLog("info", `Test details: ${JSON.stringify(result.details, null, 2)}`);
+        }
         toast({
           title: "Connection Failed",
           description: result.error || "Unable to connect to the API",
@@ -405,6 +423,11 @@ const Index = () => {
 
   const handleSaveConfiguration = async (configData: any) => {
     try {
+      addLog("info", "Saving configuration...");
+      addLog("info", `API Base URL: ${configData.api.base_url}`);
+      addLog("info", `API Config: ${configData.api.config}`);
+      addLog("info", `Username: ${configData.user.username}`);
+      
       // Convert the config data to the format expected by our services
       const credentials = {
         api: {
