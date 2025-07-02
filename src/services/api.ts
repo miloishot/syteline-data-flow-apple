@@ -13,7 +13,7 @@ export class ApiService {
     this.loadCache();
   }
 
-  // Equivalent to your get_auth_headers function
+  // Equivalent to your get_auth_headers function - EXACT Python logic
   async getAuthHeaders(): Promise<{ headers: HeadersInit; error?: string }> {
     try {
       if (this.token) {
@@ -21,81 +21,78 @@ export class ApiService {
           headers: {
             "X-Infor-MongooseConfig": this.config.config,
             "Authorization": this.token,
-            "accept": "application/json",
-            "Content-Type": "application/json"
-          }
-        };
-      }
-
-      // Get token - equivalent to your token request
-      const tokenUrl = `${this.config.base_url}/IDORequestService/ido/token/${this.config.config}/${this.userCredentials.username}/${this.userCredentials.password}`;
-      
-      console.log("Attempting to get token from:", tokenUrl.replace(this.userCredentials.password, "***"));
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout * 1000);
-      
-      try {
-        const response = await fetch(tokenUrl, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: {
             "accept": "application/json"
           }
-        });
-
-        clearTimeout(timeoutId);
-
-        console.log("Token response status:", response.status);
-        console.log("Token response headers:", Object.fromEntries(response.headers.entries()));
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Token request failed:", errorText);
-          throw new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
-        }
-
-        const tokenData = await response.json();
-        console.log("Token response data:", tokenData);
-        
-        if (!tokenData.Token) {
-          throw new Error("No token received from server");
-        }
-        
-        this.token = tokenData.Token;
-
-        return {
-          headers: {
-            "X-Infor-MongooseConfig": this.config.config,
-            "Authorization": this.token,
-            "accept": "application/json",
-            "Content-Type": "application/json"
-          }
         };
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError.name === 'AbortError') {
-          throw new Error(`Request timeout after ${this.config.timeout} seconds`);
-        }
-        
-        // Check for common network errors
-        if (fetchError.message.includes('Failed to fetch')) {
-          throw new Error(`Network error: Cannot reach ${this.config.base_url}. Please check:\n1. URL is correct\n2. Server is running\n3. No CORS issues\n4. Network connectivity`);
-        }
-        
-        throw fetchError;
       }
+
+      // Get token - EXACT same as Python: BASE/IDORequestService/ido/token/CFIG/USER/PWD
+      const BASE = this.config.base_url;
+      const CFIG = this.config.config;
+      const USER = this.userCredentials.username;
+      const PWD = this.userCredentials.password;
+      
+      const tokenUrl = `${BASE}/IDORequestService/ido/token/${CFIG}/${USER}/${PWD}`;
+      
+      console.log("Token URL (masked):", tokenUrl.replace(PWD, "***"));
+      
+      const response = await fetch(tokenUrl, {
+        method: 'GET',
+        headers: {
+          "accept": "application/json"
+        },
+        // Use same timeout as Python (30 seconds default)
+        signal: AbortSignal.timeout(30000)
+      });
+
+      console.log("Token response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Token request failed:", errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
+      }
+
+      const tokenData = await response.json();
+      console.log("Token response received");
+      
+      if (!tokenData.Token) {
+        throw new Error("No token received from server");
+      }
+      
+      this.token = tokenData.Token;
+
+      // Return headers exactly like Python
+      return {
+        headers: {
+          "X-Infor-MongooseConfig": CFIG,
+          "Authorization": this.token,
+          "accept": "application/json"
+        }
+      };
     } catch (error: any) {
       console.error("Authentication error:", error);
+      
+      // Better error messages for common issues
+      let errorMessage = error.message;
+      if (error.name === 'TimeoutError') {
+        errorMessage = "Request timeout - server may be slow or unreachable";
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMessage = `Cannot reach server at ${this.config.base_url}. Check:\n• Server URL is correct\n• Server is running\n• Network connection\n• CORS/firewall settings`;
+      } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+        errorMessage = "Invalid username or password for SyteLine system";
+      } else if (error.message.includes('404')) {
+        errorMessage = "API endpoint not found - check base URL and configuration name";
+      }
+      
       return { 
         headers: {},
-        error: `Authentication failed: ${error.message}` 
+        error: errorMessage
       };
     }
   }
 
-  // Equivalent to your get_distinct_values function
+  // Equivalent to your get_distinct_values function - EXACT Python logic
   async getDistinctValues(
     idoName: string, 
     propertyName: string, 
@@ -105,6 +102,7 @@ export class ApiService {
     const cacheKey = `${idoName}_${propertyName}`;
     const cached = this.cache.get(cacheKey);
     
+    // Check cache first (same as Python)
     if (cached && Date.now() < cached.expiry) {
       return { values: cached.data };
     }
@@ -115,37 +113,46 @@ export class ApiService {
         return { error: authResult.error };
       }
 
-      const url = `${this.config.base_url}/IDORequestService/ido/load/${idoName}`;
+      const BASE = this.config.base_url;
+      const url = `${BASE}/IDORequestService/ido/load/${idoName}`;
+      
+      // Build params exactly like Python
       const params = new URLSearchParams({
         properties: propertyName,
         distinct: "true",
         recordCap: recordCap.toString()
       });
 
-      console.log("Making distinct values request to:", `${url}?${params}`);
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout * 1000);
+      console.log("Distinct values request:", `${url}?${params}`);
 
       const response = await fetch(`${url}?${params}`, {
         method: 'GET',
         headers: authResult.headers,
-        signal: controller.signal
+        signal: AbortSignal.timeout(30000)
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
+        throw new Error(`API Error ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
       const items = data.Items || [];
       
-      // Remove empty values and duplicates - same logic as Python
+      // Process values exactly like Python
       const rawValues = items.map((item: any) => String(item[propertyName] || "").trim());
-      const uniqueValues = [...new Set(rawValues.filter(value => value))] as string[];
+      
+      // Remove empty values and duplicates - same logic as Python
+      const uniqueValues: string[] = [];
+      const seen = new Set<string>();
+      for (const value of rawValues) {
+        if (value && !seen.has(value)) {
+          uniqueValues.push(value);
+          seen.add(value);
+        }
+      }
+      
+      // Sort values (same as Python)
       uniqueValues.sort();
 
       // Cache the results
@@ -162,7 +169,7 @@ export class ApiService {
     }
   }
 
-  // Equivalent to your load_collection function
+  // Equivalent to your load_collection function - EXACT Python logic
   async loadCollection(
     idoName: string,
     properties: string,
@@ -175,28 +182,26 @@ export class ApiService {
         return { error: authResult.error };
       }
 
+      const BASE = this.config.base_url;
+      
+      // Build params exactly like Python
       const params = new URLSearchParams({
         properties,
         recordCap: recordCap.toString(),
         ...additionalParams
       });
 
-      // Custom URL encoding to handle spaces correctly (like your Python version)
+      // Custom URL encoding to handle spaces correctly (EXACT same as Python)
       const encodedParams = params.toString().replace(/\+/g, '%20');
-      const url = `${this.config.base_url}/IDORequestService/ido/load/${idoName}?${encodedParams}`;
+      const url = `${BASE}/IDORequestService/ido/load/${idoName}?${encodedParams}`;
 
-      console.log("Making load collection request to:", url);
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.config.timeout * 1000);
+      console.log("Load collection request:", url);
 
       const response = await fetch(url, {
         method: 'GET',
         headers: authResult.headers,
-        signal: controller.signal
+        signal: AbortSignal.timeout(30000)
       });
-
-      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
@@ -208,8 +213,8 @@ export class ApiService {
     } catch (error: any) {
       console.error("Load collection error:", error);
       
-      if (error.name === 'AbortError') {
-        return { error: `Request timeout after ${this.config.timeout} seconds` };
+      if (error.name === 'TimeoutError') {
+        return { error: `Request timeout after 30 seconds` };
       }
       
       if (error.message.includes('Failed to fetch')) {
@@ -220,26 +225,15 @@ export class ApiService {
     }
   }
 
-  // Test API connection - equivalent to your test function
+  // Test API connection - simplified to match Python approach
   async testConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
     try {
-      console.log("Testing connection to:", this.config.base_url);
-      console.log("Using config:", this.config.config);
+      console.log("Testing connection...");
+      console.log("Base URL:", this.config.base_url);
+      console.log("Config:", this.config.config);
       console.log("Username:", this.userCredentials.username);
       
-      // First, try a simple ping to the base URL
-      try {
-        const pingUrl = this.config.base_url;
-        const pingResponse = await fetch(pingUrl, { 
-          method: 'HEAD',
-          mode: 'no-cors' // This will help with CORS issues for basic connectivity test
-        });
-        console.log("Base URL ping successful");
-      } catch (pingError) {
-        console.warn("Base URL ping failed:", pingError);
-        // Continue anyway, as no-cors mode doesn't give us much info
-      }
-
+      // Just try to get auth headers - this will test the full auth flow
       const authResult = await this.getAuthHeaders();
       if (authResult.error) {
         return { 
@@ -256,66 +250,32 @@ export class ApiService {
         };
       }
 
-      // Try a simple request to verify the connection works
-      const testUrl = `${this.config.base_url}/IDORequestService/ido/token/${this.config.config}`;
-      console.log("Testing with URL:", testUrl);
+      // If we got here, authentication worked
+      console.log("Authentication successful");
       
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      const response = await fetch(testUrl, {
-        method: 'GET',
-        headers: authResult.headers,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      console.log("Test response status:", response.status);
-      console.log("Test response headers:", Object.fromEntries(response.headers.entries()));
-
-      if (response.ok) {
-        const responseData = await response.text();
-        console.log("Test response data:", responseData);
-      }
-
       return { 
-        success: response.ok,
-        error: response.ok ? undefined : `Status: ${response.status} ${response.statusText}`,
+        success: true,
         details: {
-          status: response.status,
-          statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries())
+          message: "Successfully authenticated with SyteLine API",
+          config: this.config.config,
+          base_url: this.config.base_url
         }
       };
     } catch (error: any) {
       console.error("Test connection error:", error);
       
-      let errorMessage = error.message;
-      let details: any = { step: "connection_test" };
-      
-      if (error.name === 'AbortError') {
-        errorMessage = "Connection timeout - server may be unreachable";
-      } else if (error.message.includes('Failed to fetch')) {
-        errorMessage = "Cannot reach server - check URL, network, and CORS settings";
-        details.possibleCauses = [
-          "Incorrect base URL",
-          "Server is down",
-          "Network connectivity issues",
-          "CORS policy blocking the request",
-          "Firewall blocking the connection"
-        ];
-      }
-      
       return { 
         success: false, 
-        error: errorMessage,
-        details
+        error: error.message,
+        details: {
+          step: "connection_test",
+          error: error.message
+        }
       };
     }
   }
 
-  // Cache management - equivalent to your Python cache functions
+  // Cache management - same as Python
   private loadCache(): void {
     try {
       const cached = localStorage.getItem("ido_api_cache");
@@ -351,7 +311,6 @@ export class ApiService {
     localStorage.removeItem("ido_api_cache");
   }
 
-  // Refresh cache for specific IDO - equivalent to your refresh functionality
   clearCacheForIdo(idoName: string): void {
     const keysToDelete = Array.from(this.cache.keys()).filter(key => key.startsWith(`${idoName}_`));
     keysToDelete.forEach(key => this.cache.delete(key));

@@ -79,7 +79,7 @@ const Index = () => {
     setShowConfigModal(false);
   };
 
-  // Updated authentication - the password field should be the ENCRYPTION password, not user password
+  // Authentication using encrypted credentials - MATCHES Python logic exactly
   const handleLogin = async (credentials: { username: string; password: string }) => {
     setIsLoggingIn(true);
     
@@ -96,7 +96,7 @@ const Index = () => {
       addLog("info", "Loading encrypted credentials...");
       const decryptedCredentials = await CredentialsService.loadCredentials(encryptionPassword);
       
-      // Verify username matches the stored username
+      // Verify username matches the stored username (from the encrypted config)
       if (decryptedCredentials.user.username !== credentials.username) {
         throw new Error("Username does not match stored credentials");
       }
@@ -106,6 +106,7 @@ const Index = () => {
       addLog("info", `API Config: ${decryptedCredentials.api.config}`);
 
       // Create API service instance with the decrypted credentials
+      // The API service will use the ACTUAL SyteLine username/password from the encrypted config
       const api = new ApiService(decryptedCredentials.api, decryptedCredentials.user);
       
       // Test connection using the actual user credentials (not encryption password)
