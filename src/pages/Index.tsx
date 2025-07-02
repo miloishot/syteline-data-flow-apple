@@ -6,123 +6,36 @@ import { JobSelector } from "@/components/JobSelector";
 import { FilterPanel } from "@/components/FilterPanel";
 import { OutputPanel } from "@/components/OutputPanel";
 import { ConfigurationModal } from "@/components/ConfigurationModal";
-import { Play, Settings, TestTube, LogOut, Plus, Edit, FileDown } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Play, Settings, TestTube, LogOut, Plus, Edit } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Types
-interface Job {
-  job_name: string;
-  ido_name: string;
-  query_params: {
-    properties: string;
-    recordCap: number;
-  };
-  output_format: string;
-  filterable_fields: Array<{
-    name: string;
-    prompt: string;
-    type: string;
-    operator: string;
-    input_type: string;
-    cache_duration?: number;
-  }>;
-}
-
-interface LogEntry {
-  timestamp: string;
-  message: string;
-  type: "info" | "success" | "error" | "warning";
-}
-
-interface FilterValues {
-  [key: string]: string;
-}
-
-// Mock data for demonstration
-const mockJobs: Job[] = [
-  {
-    job_name: "QC_Receipt_Tags_Full",
-    ido_name: "OPSIT_RS_QCInspSups",
-    query_params: {
-      properties: "Item,ItmDescription,ItmRevision,Lot,vend_lot,overview,TransDate,CreateDate,UpdatedBy,CreatedBy,InspId,RcvrNum,RcvEntity,PoInfo,DerPOItemStat,QtyAccepted,Name",
-      recordCap: 100
-    },
-    output_format: "csv",
-    filterable_fields: [
-      {
-        name: "Lot",
-        prompt: "Select Lot",
-        type: "string",
-        operator: "=",
-        input_type: "dropdown",
-        cache_duration: 300
-      },
-      {
-        name: "RcvrNum",
-        prompt: "Select Receiver Number",
-        type: "string",
-        operator: "=",
-        input_type: "dropdown",
-        cache_duration: 300
-      },
-      {
-        name: "TransDate",
-        prompt: "Select Transaction Date",
-        type: "date",
-        operator: ">=",
-        input_type: "calendar"
-      }
-    ]
-  },
-  {
-    job_name: "Inventory_Report",
-    ido_name: "OPSIT_Inventory",
-    query_params: {
-      properties: "Item,Description,QtyOnHand,Location,UOM,LastUpdated",
-      recordCap: 500
-    },
-    output_format: "xlsx",
-    filterable_fields: [
-      {
-        name: "Location",
-        prompt: "Select Location",
-        type: "string",
-        operator: "=",
-        input_type: "dropdown"
-      },
-      {
-        name: "Item",
-        prompt: "Item Number",
-        type: "string",
-        operator: "LIKE",
-        input_type: "text"
-      }
-    ]
-  }
-];
-
-const mockDropdownOptions = {
-  "Lot": ["LOT001", "LOT002", "LOT003", "LOT004", "LOT005"],
-  "RcvrNum": ["RCV001", "RCV002", "RCV003", "RCV004"],
-  "Location": ["MAIN", "WAREHOUSE", "STAGING", "SHIPPING"]
-};
+// Import all our services
+import { CredentialsService } from "@/services/encryption";
+import { ApiService } from "@/services/api";
+import { JobService, SettingsService } from "@/services/storage";
+import { ExportService, FilterUtils } from "@/services/export";
+import type { Job, LogEntry, FilterValues, ApiConfig, UserCredentials } from "@/types";
 
 const Index = () => {
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
+  const [apiService, setApiService] = useState<ApiService | null>(null);
+  const [currentCredentials, setCurrentCredentials] = useState<{ api: ApiConfig; user: UserCredentials } | null>(null);
 
   // Application state
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [outputDirectory, setOutputDirectory] = useState("/output");
+  const [outputDirectory, setOutputDirectory] = useState<string>(() => 
+    SettingsService.getSetting("output_dir", "/output")
+  );
   const [filterValues, setFilterValues] = useState<FilterValues>({});
-  const [dropdownOptions, setDropdownOptions] = useState(mockDropdownOptions);
+  const [dropdownOptions, setDropdownOptions] = useState<{ [key: string]: string[] }>({});
   const [loadingDropdowns, setLoadingDropdowns] = useState<{ [key: string]: boolean }>({});
   
   // Job execution state
@@ -141,33 +54,75 @@ const Index = () => {
 
   const { toast } = useToast();
 
-  // Mock authentication
+  // Initialize jobs on component mount
+  useEffect(() => {
+    const loadedJobs = JobService.getJobs();
+    setJobs(loadedJobs);
+  }, []);
+
+  // Helper function to add logs
+  const addLog = (type: LogEntry["type"], message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setLogs(prev => [...prev, { timestamp, message, type }]);
+  };
+
+  // Real authentication using encrypted credentials
   const handleLogin = async (credentials: { username: string; password: string }) => {
     setIsLoggingIn(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
     
-    if (credentials.username === "demo" && credentials.password === "demo") {
+    try {
+      // Check if credentials exist
+      if (!CredentialsService.hasCredentials()) {
+        throw new Error("No configuration found. Please configure your connection first.");
+      }
+
+      // Try to load encrypted credentials using the password as decryption key
+      const decryptedCredentials = await CredentialsService.loadCredentials(credentials.password);
+      
+      // Verify username matches
+      if (decryptedCredentials.user.username !== credentials.username) {
+        throw new Error("Username does not match stored credentials");
+      }
+
+      // Create API service instance
+      const api = new ApiService(decryptedCredentials.api, decryptedCredentials.user);
+      
+      // Test connection
+      addLog("info", "Testing API connection...");
+      const testResult = await api.testConnection();
+      if (!testResult.success) {
+        throw new Error(testResult.error || "Connection test failed");
+      }
+
+      setApiService(api);
+      setCurrentCredentials(decryptedCredentials);
       setIsAuthenticated(true);
+      
+      addLog("success", "Successfully authenticated and connected to IDO system");
       toast({
         title: "Welcome back!",
         description: "Successfully connected to IDO system",
       });
-    } else {
+    } catch (error: any) {
+      addLog("error", `Authentication failed: ${error.message}`);
       toast({
         title: "Authentication Failed",
-        description: "Invalid username or password",
+        description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setIsLoggingIn(false);
     }
-    setIsLoggingIn(false);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setApiService(null);
+    setCurrentCredentials(null);
     setSelectedJob(null);
     setFilterValues({});
     setLogs([]);
+    setDropdownOptions({});
     toast({
       title: "Logged out",
       description: "Session ended successfully",
@@ -182,20 +137,72 @@ const Index = () => {
       initialValues[field.name] = "";
     });
     setFilterValues(initialValues);
+    setDropdownOptions({});
     
     addLog("info", `Selected job: ${job.job_name}`);
+    
+    // Load dropdown options for the new job
+    loadDropdownsForJob(job);
   };
 
-  const addLog = (type: LogEntry["type"], message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, { timestamp, message, type }]);
+  const loadDropdownsForJob = async (job: Job) => {
+    if (!apiService) return;
+
+    const dropdownFields = job.filterable_fields.filter(f => f.input_type === "dropdown");
+    if (dropdownFields.length === 0) return;
+
+    addLog("info", "Loading dropdown options...");
+    
+    // Set loading state for all dropdown fields
+    const loadingState: { [key: string]: boolean } = {};
+    dropdownFields.forEach(field => {
+      loadingState[field.name] = true;
+    });
+    setLoadingDropdowns(loadingState);
+
+    // Load options for each dropdown field
+    const optionsPromises = dropdownFields.map(async (field) => {
+      const result = await apiService.getDistinctValues(
+        job.ido_name,
+        field.name,
+        1000,
+        field.cache_duration || 300
+      );
+      
+      return {
+        fieldName: field.name,
+        options: result.values || [],
+        error: result.error
+      };
+    });
+
+    try {
+      const results = await Promise.all(optionsPromises);
+      const newOptions: { [key: string]: string[] } = {};
+      
+      results.forEach(result => {
+        if (result.error) {
+          addLog("warning", `Failed to load options for ${result.fieldName}: ${result.error}`);
+          newOptions[result.fieldName] = [];
+        } else {
+          newOptions[result.fieldName] = result.options;
+          addLog("info", `Loaded ${result.options.length} options for ${result.fieldName}`);
+        }
+      });
+
+      setDropdownOptions(newOptions);
+    } catch (error: any) {
+      addLog("error", `Failed to load dropdown options: ${error.message}`);
+    } finally {
+      setLoadingDropdowns({});
+    }
   };
 
   const handleRunJob = async () => {
-    if (!selectedJob) {
+    if (!selectedJob || !apiService) {
       toast({
-        title: "No Job Selected",
-        description: "Please select a job before running",
+        title: "Cannot Run Job",
+        description: "Please select a job and ensure you're connected",
         variant: "destructive",
       });
       return;
@@ -204,39 +211,108 @@ const Index = () => {
     setIsRunning(true);
     addLog("info", `Starting job: ${selectedJob.job_name}`);
     
-    // Build filter string
-    const activeFilters = Object.entries(filterValues)
-      .filter(([_, value]) => value.trim() !== "")
-      .map(([key, value]) => `${key} = '${value}'`);
-    
-    if (activeFilters.length > 0) {
-      addLog("info", `Applied filters: ${activeFilters.join(", ")}`);
-    } else {
-      addLog("info", "No filters applied - fetching all records");
-    }
-
-    // Simulate API call
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Build filter string using the same logic as Python
+      const filterResult = FilterUtils.buildFiltersFromValues(selectedJob.filterable_fields, filterValues);
+      if (filterResult.error) {
+        addLog("error", filterResult.error);
+        toast({
+          title: "Filter Error",
+          description: filterResult.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (filterResult.filter) {
+        addLog("info", `Applied filters: ${filterResult.filter}`);
+      } else {
+        addLog("info", "No filters applied - fetching all records");
+      }
+
+      // Prepare API parameters
+      const params: Record<string, string> = {};
+      if (filterResult.filter) {
+        params.filter = filterResult.filter;
+      }
+
+      // Make API call
+      addLog("info", "Executing API request...");
+      const result = await apiService.loadCollection(
+        selectedJob.ido_name,
+        selectedJob.query_params.properties,
+        selectedJob.query_params.recordCap,
+        params
+      );
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      if (!result.data || !result.data.Items) {
+        throw new Error("No data received from API");
+      }
+
+      let items = result.data.Items;
       
-      const mockRecordCount = Math.floor(Math.random() * 500) + 50;
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const mockPath = `${outputDirectory}/${selectedJob.job_name}_${timestamp}.${selectedJob.output_format}`;
+      if (items.length === 0) {
+        addLog("warning", "No records found matching the criteria");
+        toast({
+          title: "No Data",
+          description: "No records found matching your filter criteria",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      addLog("success", `Retrieved ${items.length} records from API`);
+
+      // Add custom column if requested
+      if (addColumn && newColumnName.trim()) {
+        items = items.map((item: any) => ({
+          ...item,
+          [newColumnName.trim()]: newColumnValue
+        }));
+        addLog("info", `Added custom column: ${newColumnName.trim()}`);
+      }
+
+      // Modify existing column if requested
+      if (modifyColumn && modifyColumnName.trim()) {
+        items = items.map((item: any) => ({
+          ...item,
+          [modifyColumnName.trim()]: modifyColumnValue
+        }));
+        addLog("info", `Modified column: ${modifyColumnName.trim()}`);
+      }
+
+      // Export data
+      addLog("info", "Exporting data...");
+      const exportResult = await ExportService.exportData(
+        items,
+        selectedJob.job_name,
+        selectedJob.output_format,
+        outputDirectory
+      );
+
+      setRecordCount(exportResult.recordCount);
+      setLastExportPath(exportResult.filePath);
       
-      setRecordCount(mockRecordCount);
-      setLastExportPath(mockPath);
-      addLog("success", `Successfully exported ${mockRecordCount} records`);
-      addLog("info", `File saved: ${mockPath}`);
+      addLog("success", `Successfully exported ${exportResult.recordCount} records`);
+      addLog("info", `File saved: ${exportResult.filePath}`);
+      
+      // Save output directory setting
+      SettingsService.saveSetting("output_dir", outputDirectory);
       
       toast({
         title: "Export Complete!",
-        description: `${mockRecordCount} records exported successfully`,
+        description: `${exportResult.recordCount} records exported successfully`,
       });
-    } catch (error) {
-      addLog("error", `Export failed: ${error}`);
+
+    } catch (error: any) {
+      addLog("error", `Export failed: ${error.message}`);
       toast({
         title: "Export Failed",
-        description: "An error occurred during export",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -245,52 +321,95 @@ const Index = () => {
   };
 
   const handleTestConnection = async () => {
+    if (!apiService) {
+      toast({
+        title: "Not Connected",
+        description: "Please login first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     addLog("info", "Testing API connection...");
     
-    // Simulate connection test
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const success = Math.random() > 0.3; // 70% success rate for demo
-    
-    if (success) {
-      addLog("success", "API connection successful");
+    try {
+      const result = await apiService.testConnection();
+      
+      if (result.success) {
+        addLog("success", "API connection test successful");
+        toast({
+          title: "Connection Test",
+          description: "✅ Successfully connected to the API!",
+        });
+      } else {
+        addLog("error", `API connection test failed: ${result.error}`);
+        toast({
+          title: "Connection Failed",
+          description: result.error || "Unable to connect to the API",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      addLog("error", `Connection test error: ${error.message}`);
       toast({
-        title: "Connection Test",
-        description: "✅ Successfully connected to the API!",
-      });
-    } else {
-      addLog("error", "API connection failed");
-      toast({
-        title: "Connection Failed",
-        description: "Unable to connect to the API",
+        title: "Connection Error",
+        description: error.message,
         variant: "destructive",
       });
     }
   };
 
   const refreshDropdowns = async () => {
-    if (!selectedJob) return;
+    if (!selectedJob || !apiService) return;
     
     addLog("info", "Refreshing dropdown options...");
     
-    // Simulate loading for each dropdown field
-    const dropdownFields = selectedJob.filterable_fields.filter(f => f.input_type === "dropdown");
-    const loadingState: { [key: string]: boolean } = {};
+    // Clear cache for current job
+    apiService.clearCacheForIdo(selectedJob.ido_name);
     
-    dropdownFields.forEach(field => {
-      loadingState[field.name] = true;
-    });
-    setLoadingDropdowns(loadingState);
+    // Reload dropdown options
+    await loadDropdownsForJob(selectedJob);
     
-    // Simulate API calls
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    setLoadingDropdowns({});
     addLog("success", "Dropdown options refreshed");
   };
 
   const clearLogs = () => {
     setLogs([]);
+  };
+
+  const handleSaveConfiguration = async (configData: any) => {
+    try {
+      // Convert the config data to the format expected by our services
+      const credentials = {
+        api: {
+          base_url: configData.api.base_url,
+          config: configData.api.config,
+          timeout: parseInt(configData.api.timeout) || 30,
+          retry_count: parseInt(configData.api.retry_count) || 3,
+          retry_delay: parseInt(configData.api.retry_delay) || 1,
+        },
+        user: {
+          username: configData.user.username,
+          password: configData.user.password,
+        },
+        logging: {
+          level: "INFO"
+        }
+      };
+
+      // Save encrypted credentials
+      await CredentialsService.saveCredentials(credentials, configData.security.encryption_password);
+      
+      addLog("success", "Configuration saved successfully");
+      
+      toast({
+        title: "Configuration Saved",
+        description: "Your API configuration has been saved securely",
+      });
+    } catch (error: any) {
+      addLog("error", `Failed to save configuration: ${error.message}`);
+      throw error; // Re-throw so the modal can handle it
+    }
   };
 
   // Get available columns for modification
@@ -326,6 +445,7 @@ const Index = () => {
               variant="outline"
               onClick={handleTestConnection}
               className="flex items-center gap-2"
+              disabled={!apiService}
             >
               <TestTube className="w-4 h-4" />
               Test Connection
@@ -356,16 +476,18 @@ const Index = () => {
         <div className="lg:col-span-1 space-y-6">
           <div className="animate-fade-in" style={{ animationDelay: "0.1s" }}>
             <JobSelector
-              jobs={mockJobs}
+              jobs={jobs}
               selectedJob={selectedJob}
               onJobSelect={handleJobSelect}
               outputDirectory={outputDirectory}
-              onOutputDirectoryChange={setOutputDirectory}
+              onOutputDirectoryChange={(dir) => {
+                setOutputDirectory(dir);
+                SettingsService.saveSetting("output_dir", dir);
+              }}
               onBrowseDirectory={() => {
-                // In a real app, this would open a directory picker
                 toast({
-                  title: "Directory Browser",
-                  description: "Directory picker would open here",
+                  title: "Directory Selection",
+                  description: "Files will be downloaded to your browser's default download folder",
                 });
               }}
             />
@@ -489,7 +611,7 @@ const Index = () => {
                 variant="gradient"
                 size="lg"
                 onClick={handleRunJob}
-                disabled={isRunning}
+                disabled={isRunning || !apiService}
                 className="w-full"
               >
                 {isRunning ? (
@@ -524,11 +646,16 @@ const Index = () => {
       <ConfigurationModal
         isOpen={showConfigModal}
         onClose={() => setShowConfigModal(false)}
-        onSave={async (config) => {
-          // In a real app, save the configuration
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          addLog("success", "Configuration saved successfully");
-        }}
+        onSave={handleSaveConfiguration}
+        initialConfig={currentCredentials ? {
+          api: {
+            ...currentCredentials.api,
+            timeout: currentCredentials.api.timeout.toString(),
+            retry_count: currentCredentials.api.retry_count.toString(),
+            retry_delay: currentCredentials.api.retry_delay.toString(),
+          },
+          user: currentCredentials.user
+        } : undefined}
       />
     </div>
   );
