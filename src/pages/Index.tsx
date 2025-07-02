@@ -66,6 +66,18 @@ const Index = () => {
     setLogs(prev => [...prev, { timestamp, message, type }]);
   };
 
+  // Handle opening configuration modal
+  const handleOpenConfig = () => {
+    console.log("Opening configuration modal");
+    setShowConfigModal(true);
+  };
+
+  // Handle closing configuration modal
+  const handleCloseConfig = () => {
+    console.log("Closing configuration modal");
+    setShowConfigModal(false);
+  };
+
   // Real authentication using encrypted credentials
   const handleLogin = async (credentials: { username: string; password: string }) => {
     setIsLoggingIn(true);
@@ -419,11 +431,29 @@ const Index = () => {
 
   if (!isAuthenticated) {
     return (
-      <LoginForm 
-        onLogin={handleLogin} 
-        onOpenConfig={() => setShowConfigModal(true)}
-        isLoading={isLoggingIn}
-      />
+      <>
+        <LoginForm 
+          onLogin={handleLogin} 
+          onOpenConfig={handleOpenConfig}
+          isLoading={isLoggingIn}
+        />
+        
+        {/* Configuration Modal - Always render but control visibility with isOpen */}
+        <ConfigurationModal
+          isOpen={showConfigModal}
+          onClose={handleCloseConfig}
+          onSave={handleSaveConfiguration}
+          initialConfig={currentCredentials ? {
+            api: {
+              ...currentCredentials.api,
+              timeout: currentCredentials.api.timeout.toString(),
+              retry_count: currentCredentials.api.retry_count.toString(),
+              retry_delay: currentCredentials.api.retry_delay.toString(),
+            },
+            user: currentCredentials.user
+          } : undefined}
+        />
+      </>
     );
   }
 
@@ -452,7 +482,7 @@ const Index = () => {
             </Button>
             <Button
               variant="ghost"
-              onClick={() => setShowConfigModal(true)}
+              onClick={handleOpenConfig}
               className="flex items-center gap-2"
             >
               <Settings className="w-4 h-4" />
@@ -642,10 +672,10 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Configuration Modal */}
+      {/* Configuration Modal - Always render but control visibility with isOpen */}
       <ConfigurationModal
         isOpen={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
+        onClose={handleCloseConfig}
         onSave={handleSaveConfiguration}
         initialConfig={currentCredentials ? {
           api: {
