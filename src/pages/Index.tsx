@@ -78,7 +78,7 @@ const Index = () => {
     setShowConfigModal(false);
   };
 
-  // Real authentication using encrypted credentials
+  // Updated authentication - the password field should be the ENCRYPTION password, not user password
   const handleLogin = async (credentials: { username: string; password: string }) => {
     setIsLoggingIn(true);
     
@@ -88,18 +88,22 @@ const Index = () => {
         throw new Error("No configuration found. Please configure your connection first.");
       }
 
-      // Try to load encrypted credentials using the password as decryption key
-      const decryptedCredentials = await CredentialsService.loadCredentials(credentials.password);
+      // The password field in the login form is actually the ENCRYPTION password
+      const encryptionPassword = credentials.password;
       
-      // Verify username matches
+      // Try to load encrypted credentials using the encryption password
+      addLog("info", "Loading encrypted credentials...");
+      const decryptedCredentials = await CredentialsService.loadCredentials(encryptionPassword);
+      
+      // Verify username matches the stored username
       if (decryptedCredentials.user.username !== credentials.username) {
         throw new Error("Username does not match stored credentials");
       }
 
-      // Create API service instance
+      // Create API service instance with the decrypted credentials
       const api = new ApiService(decryptedCredentials.api, decryptedCredentials.user);
       
-      // Test connection
+      // Test connection using the actual user credentials (not encryption password)
       addLog("info", "Testing API connection...");
       const testResult = await api.testConnection();
       if (!testResult.success) {
@@ -116,10 +120,20 @@ const Index = () => {
         description: "Successfully connected to IDO system",
       });
     } catch (error: any) {
+      console.error("Login error:", error);
       addLog("error", `Authentication failed: ${error.message}`);
+      
+      // Provide more helpful error messages
+      let errorMessage = error.message;
+      if (error.message.includes("Failed to load credentials")) {
+        errorMessage = "Invalid encryption password. Please enter the password you used when configuring the connection.";
+      } else if (error.message.includes("Username does not match")) {
+        errorMessage = "Username does not match the configured credentials. Please check your username.";
+      }
+      
       toast({
         title: "Authentication Failed",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -416,7 +430,7 @@ const Index = () => {
       
       toast({
         title: "Configuration Saved",
-        description: "Your API configuration has been saved securely",
+        description: "Your API configuration has been saved securely. You can now log in using your username and the encryption password you just set.",
       });
     } catch (error: any) {
       addLog("error", `Failed to save configuration: ${error.message}`);

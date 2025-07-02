@@ -52,7 +52,7 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
               <Input
                 id="username"
                 type="text"
-                placeholder="Enter your username"
+                placeholder="Enter your SyteLine username"
                 value={credentials.username}
                 onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
                 className="h-12 bg-background/50 border-border/50 focus:bg-background transition-all duration-300"
@@ -63,13 +63,13 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
 
             <div className="space-y-2">
               <Label htmlFor="password" className="text-sm font-medium">
-                Password
+                Encryption Password
               </Label>
               <div className="relative">
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
+                  placeholder="Enter your encryption password"
                   value={credentials.password}
                   onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
                   className="h-12 bg-background/50 border-border/50 focus:bg-background transition-all duration-300 pr-12"
@@ -84,6 +84,9 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                This is the encryption password you set when configuring the connection, not your SyteLine password.
+              </p>
             </div>
 
             <Button
@@ -123,6 +126,11 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
             <Shield className="w-4 h-4 mr-2" />
             Configure Connection
           </Button>
+
+          <div className="text-center text-xs text-muted-foreground space-y-1">
+            <p><strong>First time?</strong> Click "Configure Connection" to set up your API details.</p>
+            <p><strong>Returning?</strong> Use your username and encryption password to sign in.</p>
+          </div>
         </CardContent>
       </Card>
     </div>
