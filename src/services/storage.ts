@@ -22,8 +22,8 @@ export class JobService {
           cache_duration: 300
         },
         {
-          name: "RcvrNum",
-          prompt: "Select Receiver Number",
+          name: "Item",
+          prompt: "Select Item code",
           type: "string",
           operator: "=",
           input_type: "dropdown",
