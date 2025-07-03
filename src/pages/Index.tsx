@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { LoginForm } from "@/components/LoginForm";
@@ -17,11 +18,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CredentialsService } from "@/services/encryption";
 import { ApiService } from "@/services/api";
 import { JobService, SettingsService } from "@/services/storage";
+import { ConfigurationService, DatabaseJobService } from "@/services/database";
 import { ExportService, FilterUtils } from "@/services/export";
+import { supabase } from "@/integrations/supabase/client";
 import type { Job, LogEntry, FilterValues, ApiConfig, UserCredentials } from "@/types";
 
 const Index = () => {
-  // Authentication state - this is really just "credentials loaded" state
+  const navigate = useNavigate();
+  
+  // Supabase authentication state
+  const [dbAuthenticated, setDbAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  
+  // App authentication state - this is really just "credentials loaded" state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -54,11 +63,61 @@ const Index = () => {
 
   const { toast } = useToast();
 
-  // Initialize jobs on component mount
+  // Check authentication and initialize
   useEffect(() => {
-    const loadedJobs = JobService.getJobs();
-    setJobs(loadedJobs);
-  }, []);
+    const initializeApp = async () => {
+      // Check Supabase authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
+
+      setDbAuthenticated(true);
+      
+      // Load jobs from database or fallback to localStorage
+      try {
+        addLog("info", "Loading jobs from database...");
+        const dbJobs = await DatabaseJobService.getJobs();
+        
+        if (dbJobs.success && dbJobs.data && dbJobs.data.length > 0) {
+          setJobs(dbJobs.data);
+          addLog("success", `Loaded ${dbJobs.data.length} jobs from database`);
+        } else {
+          // Fallback to localStorage and migrate default job
+          addLog("info", "No jobs found in database, migrating default job...");
+          const localJobs = JobService.getJobs();
+          setJobs(localJobs);
+          
+          // Migrate default job to database
+          const migrationResult = await DatabaseJobService.migrateDefaultJob();
+          if (migrationResult.success) {
+            addLog("success", "Default job migrated to database");
+          } else {
+            addLog("warning", `Failed to migrate default job: ${migrationResult.error}`);
+          }
+        }
+      } catch (error: any) {
+        addLog("warning", `Database load failed, using localStorage: ${error.message}`);
+        const localJobs = JobService.getJobs();
+        setJobs(localJobs);
+      }
+      
+      setCheckingAuth(false);
+    };
+
+    initializeApp();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   // Helper function to add logs
   const addLog = (type: LogEntry["type"], message: string) => {
