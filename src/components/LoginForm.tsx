@@ -38,7 +38,7 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
           <div>
             <CardTitle className="text-2xl font-bold">IDO Data Extractor</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Connect to your Infor SyteLine system
+              Load your saved credentials to access the API
             </CardDescription>
           </div>
         </CardHeader>
@@ -99,10 +99,10 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
               {isLoading ? (
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  Connecting...
+                  Loading Credentials...
                 </div>
               ) : (
-                "Sign In"
+                "Load Credentials"
               )}
             </Button>
           </form>
@@ -129,7 +129,7 @@ export function LoginForm({ onLogin, onOpenConfig, isLoading = false }: LoginFor
 
           <div className="text-center text-xs text-muted-foreground space-y-1">
             <p><strong>First time?</strong> Click "Configure Connection" to set up your API details.</p>
-            <p><strong>Returning?</strong> Use your username and encryption password to sign in.</p>
+            <p><strong>Returning?</strong> Use your username and encryption password to load your saved credentials.</p>
           </div>
         </CardContent>
       </Card>

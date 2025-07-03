@@ -21,7 +21,7 @@ import { ExportService, FilterUtils } from "@/services/export";
 import type { Job, LogEntry, FilterValues, ApiConfig, UserCredentials } from "@/types";
 
 const Index = () => {
-  // Authentication state
+  // Authentication state - this is really just "credentials loaded" state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -79,7 +79,7 @@ const Index = () => {
     setShowConfigModal(false);
   };
 
-  // Authentication using encrypted credentials - MATCHES Python logic exactly
+  // Load credentials using encryption password - this is NOT a login, just decrypting stored config
   const handleLogin = async (credentials: { username: string; password: string }) => {
     setIsLoggingIn(true);
     
@@ -89,7 +89,7 @@ const Index = () => {
         throw new Error("No configuration found. Please configure your connection first.");
       }
 
-      // The password field in the login form is actually the ENCRYPTION password
+      // The password field in the form is actually the ENCRYPTION password
       const encryptionPassword = credentials.password;
       
       // Try to load encrypted credentials using the encryption password
@@ -106,33 +106,20 @@ const Index = () => {
       addLog("info", `API Config: ${decryptedCredentials.api.config}`);
 
       // Create API service instance with the decrypted credentials
-      // The API service will use the ACTUAL SyteLine username/password from the encrypted config
       const api = new ApiService(decryptedCredentials.api, decryptedCredentials.user);
       
-      // Test connection using the actual user credentials (not encryption password)
-      addLog("info", "Testing API connection...");
-      const testResult = await api.testConnection();
-      
-      if (!testResult.success) {
-        addLog("error", `Connection test failed: ${testResult.error}`);
-        if (testResult.details) {
-          addLog("info", `Test details: ${JSON.stringify(testResult.details, null, 2)}`);
-        }
-        throw new Error(testResult.error || "Connection test failed");
-      }
-
       setApiService(api);
       setCurrentCredentials(decryptedCredentials);
       setIsAuthenticated(true);
       
-      addLog("success", "Successfully authenticated and connected to IDO system");
+      addLog("success", "Credentials loaded successfully - ready to make API calls");
       toast({
         title: "Welcome back!",
-        description: "Successfully connected to IDO system",
+        description: "Credentials loaded successfully",
       });
     } catch (error: any) {
-      console.error("Login error:", error);
-      addLog("error", `Authentication failed: ${error.message}`);
+      console.error("Credential loading error:", error);
+      addLog("error", `Failed to load credentials: ${error.message}`);
       
       // Provide more helpful error messages
       let errorMessage = error.message;
@@ -140,12 +127,10 @@ const Index = () => {
         errorMessage = "Invalid encryption password. Please enter the password you used when configuring the connection.";
       } else if (error.message.includes("Username does not match")) {
         errorMessage = "Username does not match the configured credentials. Please check your username.";
-      } else if (error.message.includes("Network error") || error.message.includes("Failed to fetch")) {
-        errorMessage = "Cannot reach the API server. Please check:\n• Server URL is correct\n• Server is running\n• Network connection\n• Firewall settings";
       }
       
       toast({
-        title: "Authentication Failed",
+        title: "Failed to Load Credentials",
         description: errorMessage,
         variant: "destructive",
       });
@@ -241,7 +226,7 @@ const Index = () => {
     if (!selectedJob || !apiService) {
       toast({
         title: "Cannot Run Job",
-        description: "Please select a job and ensure you're connected",
+        description: "Please select a job and ensure credentials are loaded",
         variant: "destructive",
       });
       return;
@@ -363,7 +348,7 @@ const Index = () => {
     if (!apiService) {
       toast({
         title: "Not Connected",
-        description: "Please login first",
+        description: "Please load credentials first",
         variant: "destructive",
       });
       return;
@@ -454,7 +439,7 @@ const Index = () => {
       
       toast({
         title: "Configuration Saved",
-        description: "Your API configuration has been saved securely. You can now log in using your username and the encryption password you just set.",
+        description: "Your API configuration has been saved securely. You can now load credentials using your username and the encryption password you just set.",
       });
     } catch (error: any) {
       addLog("error", `Failed to save configuration: ${error.message}`);
