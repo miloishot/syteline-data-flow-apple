@@ -32,6 +32,7 @@ export class ApiService {
       const USER = this.userCredentials.username;
       const PWD = this.userCredentials.password;
       
+      // Build URL exactly like Python - no URL encoding of path segments
       const tokenUrl = `${BASE}/IDORequestService/ido/token/${CFIG}/${USER}/${PWD}`;
       
       console.log("Token URL (masked):", tokenUrl.replace(PWD, "***"));
@@ -41,7 +42,6 @@ export class ApiService {
         headers: {
           "accept": "application/json"
         },
-        mode: 'cors', // Explicitly set CORS mode
         // Use same timeout as Python (30 seconds default)
         signal: AbortSignal.timeout(30000)
       });
@@ -115,6 +115,7 @@ export class ApiService {
       }
 
       const BASE = this.config.base_url;
+      // Build URL exactly like Python
       const url = `${BASE}/IDORequestService/ido/load/${idoName}`;
       
       // Build params exactly like Python
@@ -129,7 +130,6 @@ export class ApiService {
       const response = await fetch(`${url}?${params}`, {
         method: 'GET',
         headers: authResult.headers,
-        mode: 'cors',
         signal: AbortSignal.timeout(30000)
       });
 
@@ -194,6 +194,7 @@ export class ApiService {
       });
 
       // Custom URL encoding to handle spaces correctly (EXACT same as Python)
+      // Python: encoded.replace('+', '%20')
       const encodedParams = params.toString().replace(/\+/g, '%20');
       const url = `${BASE}/IDORequestService/ido/load/${idoName}?${encodedParams}`;
 
@@ -202,7 +203,6 @@ export class ApiService {
       const response = await fetch(url, {
         method: 'GET',
         headers: authResult.headers,
-        mode: 'cors',
         signal: AbortSignal.timeout(30000)
       });
 
