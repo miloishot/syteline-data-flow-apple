@@ -41,6 +41,7 @@ export class ApiService {
         headers: {
           "accept": "application/json"
         },
+        mode: 'cors', // Explicitly set CORS mode
         // Use same timeout as Python (30 seconds default)
         signal: AbortSignal.timeout(30000)
       });
@@ -78,7 +79,7 @@ export class ApiService {
       if (error.name === 'TimeoutError') {
         errorMessage = "Request timeout - server may be slow or unreachable";
       } else if (error.message.includes('Failed to fetch')) {
-        errorMessage = `Cannot reach server at ${this.config.base_url}. Check:\n• Server URL is correct\n• Server is running\n• Network connection\n• CORS/firewall settings`;
+        errorMessage = `Cannot reach server at ${this.config.base_url}. This might be due to:\n• CORS policy blocking the request\n• Server not responding\n• Network connectivity issues\n• Invalid server URL`;
       } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
         errorMessage = "Invalid username or password for SyteLine system";
       } else if (error.message.includes('404')) {
@@ -128,6 +129,7 @@ export class ApiService {
       const response = await fetch(`${url}?${params}`, {
         method: 'GET',
         headers: authResult.headers,
+        mode: 'cors',
         signal: AbortSignal.timeout(30000)
       });
 
@@ -200,6 +202,7 @@ export class ApiService {
       const response = await fetch(url, {
         method: 'GET',
         headers: authResult.headers,
+        mode: 'cors',
         signal: AbortSignal.timeout(30000)
       });
 
@@ -218,7 +221,7 @@ export class ApiService {
       }
       
       if (error.message.includes('Failed to fetch')) {
-        return { error: `Network error: Cannot reach the API server. Please check your connection and server status.` };
+        return { error: `Network error: Cannot reach the API server. This might be due to CORS policy restrictions when calling external APIs from the browser.` };
       }
       
       return { error: `Request failed: ${error.message}` };
