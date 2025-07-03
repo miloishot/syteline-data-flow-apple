@@ -5,10 +5,10 @@ export class JobService {
   private static readonly JOBS_STORAGE_KEY = "ido_jobs";
   private static readonly DEFAULT_JOBS: Job[] = [
     {
-      job_name: "QC_Receipt_Tags_Full",
-      ido_name: "OPSIT_RS_QCInspSups",
+      job_name: "Staging_Area_Label",
+      ido_name: "OPSIT_RS_QCInspIps",
       query_params: {
-        properties: "Item,ItmDescription,ItmRevision,Lot,vend_lot,overview,TransDate,CreateDate,UpdatedBy,CreatedBy,InspId,RcvrNum,RcvEntity,PoInfo,DerPOItemStat,QtyAccepted,Name",
+        properties: "Name,Lot,rcvd_qty,CreateDate,Item,TransDate,u_m,itmDescription,Job,overview",
         recordCap: 100
       },
       output_format: "csv",
