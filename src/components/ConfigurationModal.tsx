@@ -5,10 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Eye, EyeOff, Settings, Server, User, Shield, Save, AlertTriangle } from "lucide-react";
+import { Eye, EyeOff, Settings, Server, User, Shield, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { ConfigurationService } from "@/services/database";
 
 interface ConfigData {
   api: {
@@ -66,8 +64,6 @@ export function ConfigurationModal({
   });
 
   const [isSaving, setIsSaving] = useState(false);
-  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
-  const [duplicateUsername, setDuplicateUsername] = useState("");
   const { toast } = useToast();
 
   const updateConfig = (section: keyof ConfigData, field: string, value: string) => {
@@ -111,88 +107,20 @@ export function ConfigurationModal({
 
     setIsSaving(true);
     try {
-      // Try to save configuration to database
-      const result = await ConfigurationService.saveConfiguration(
-        config.user.username,
-        config,
-        config.security.encryption_password
-      );
-
-      if (!result.success) {
-        if (result.existingConfig) {
-          // Configuration with this username already exists for another user
-          setDuplicateUsername(config.user.username);
-          setShowDuplicateDialog(true);
-          setIsSaving(false);
-          return;
-        } else {
-          // Other error
-          throw new Error(result.error || "Failed to save configuration");
-        }
-      }
-
-      // Also save to localStorage as fallback
       await onSave(config);
-      
       toast({
         title: "Configuration Saved",
         description: "Your settings have been saved successfully",
       });
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Save Failed",
-        description: error.message || "Failed to save configuration. Please try again.",
+        description: "Failed to save configuration. Please try again.",
         variant: "destructive",
       });
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleUseDuplicateConfig = async () => {
-    setShowDuplicateDialog(false);
-    try {
-      // Load the existing configuration
-      const result = await ConfigurationService.loadConfiguration(
-        duplicateUsername,
-        config.security.encryption_password
-      );
-
-      if (result.success && result.data) {
-        // Update the current form with the loaded data
-        setConfig(prev => ({
-          ...prev,
-          api: {
-            base_url: result.data.api.base_url,
-            config: result.data.api.config,
-            timeout: result.data.api.timeout.toString(),
-            retry_count: result.data.api.retry_count.toString(),
-            retry_delay: result.data.api.retry_delay.toString(),
-          },
-          user: {
-            username: result.data.user.username,
-            password: result.data.user.password,
-          }
-        }));
-        
-        toast({
-          title: "Configuration Loaded",
-          description: "Existing configuration has been loaded into the form",
-        });
-      } else {
-        toast({
-          title: "Load Failed",
-          description: "Failed to load existing configuration. Please check your encryption password.",
-          variant: "destructive",
-        });
-      }
-    } catch (error: any) {
-      toast({
-        title: "Load Failed",
-        description: error.message || "Failed to load configuration",
-        variant: "destructive",
-      });
     }
   };
 
@@ -428,30 +356,6 @@ export function ConfigurationModal({
           </Button>
         </div>
       </DialogContent>
-
-      {/* Duplicate Configuration Alert */}
-      <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-warning" />
-              Configuration Already Exists
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              A configuration with the username "{duplicateUsername}" already exists in the system. 
-              You can either use the existing configuration data or continue with creating a new one.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowDuplicateDialog(false)}>
-              Create New
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleUseDuplicateConfig}>
-              Use Existing Configuration
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Dialog>
   );
 }
