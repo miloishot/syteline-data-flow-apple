@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // Proxy API requests to avoid CORS issues in development
       '/api': {
-        target: 'http://your-syteline-server.com', // This will be replaced by the actual API base URL
+        target: 'https://csi10a.erpsl.ne1.inforcloudsuite.com', // Your actual SyteLine server
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
         configure: (proxy, options) => {

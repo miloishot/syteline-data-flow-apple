@@ -13,6 +13,16 @@ export class ApiService {
     this.loadCache();
   }
 
+  // Get the base URL - use proxy in development, direct URL in production
+  private getBaseUrl(): string {
+    // In development, use the proxy to avoid CORS issues
+    if (import.meta.env.DEV) {
+      return '/api';
+    }
+    // In production, use the actual API URL
+    return this.config.base_url;
+  }
+
   // Equivalent to your get_auth_headers function - EXACT Python logic
   async getAuthHeaders(): Promise<{ headers: HeadersInit; error?: string }> {
     try {
@@ -27,7 +37,7 @@ export class ApiService {
       }
 
       // Get token - EXACT same as Python: BASE/IDORequestService/ido/token/CFIG/USER/PWD
-      const BASE = this.config.base_url;
+      const BASE = this.getBaseUrl();
       const CFIG = this.config.config;
       const USER = this.userCredentials.username;
       const PWD = this.userCredentials.password;
@@ -79,7 +89,7 @@ export class ApiService {
       if (error.name === 'TimeoutError') {
         errorMessage = "Request timeout - server may be slow or unreachable";
       } else if (error.message.includes('Failed to fetch')) {
-        errorMessage = `Cannot reach server at ${url}. This might be due to:\n• CORS policy blocking the request\n• Server not responding\n• Network connectivity issues\n• Invalid server URL`;
+        errorMessage = `Cannot reach server. This might be due to:\n• CORS policy blocking the request\n• Server not responding\n• Network connectivity issues\n• Invalid server URL`;
       } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
         errorMessage = "Invalid username or password for SyteLine system";
       } else if (error.message.includes('404')) {
@@ -105,16 +115,19 @@ export class ApiService {
     
     // Check cache first (same as Python)
     if (cached && Date.now() < cached.expiry) {
+      console.log(`Using cached values for ${cacheKey}`);
       return { values: cached.data };
     }
 
     try {
+      console.log(`Loading distinct values for ${idoName}.${propertyName}`);
+      
       const authResult = await this.getAuthHeaders();
       if (authResult.error) {
         return { error: authResult.error };
       }
 
-      const BASE = this.config.base_url;
+      const BASE = this.getBaseUrl();
       // Build URL exactly like Python
       const url = `${BASE}/IDORequestService/ido/load/${idoName}`;
       
@@ -135,11 +148,14 @@ export class ApiService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error("Distinct values API error:", errorText);
         throw new Error(`API Error ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
       const items = data.Items || [];
+      
+      console.log(`Received ${items.length} items for distinct values`);
       
       // Process values exactly like Python
       const rawValues = items.map((item: any) => String(item[propertyName] || "").trim());
@@ -156,6 +172,8 @@ export class ApiService {
       
       // Sort values (same as Python)
       uniqueValues.sort();
+
+      console.log(`Processed ${uniqueValues.length} unique values for ${propertyName}`);
 
       // Cache the results
       this.cache.set(cacheKey, {
@@ -184,7 +202,7 @@ export class ApiService {
         return { error: authResult.error };
       }
 
-      const BASE = this.config.base_url;
+      const BASE = this.getBaseUrl();
       
       // Build params exactly like Python
       const params = new URLSearchParams({
@@ -232,7 +250,7 @@ export class ApiService {
   async testConnection(): Promise<{ success: boolean; error?: string; details?: any }> {
     try {
       console.log("Testing connection...");
-      console.log("Base URL:", this.config.base_url);
+      console.log("Base URL:", this.getBaseUrl());
       console.log("Config:", this.config.config);
       console.log("Username:", this.userCredentials.username);
       
@@ -245,7 +263,7 @@ export class ApiService {
           details: {
             step: "authentication",
             config: {
-              base_url: this.config.base_url,
+              base_url: this.getBaseUrl(),
               config: this.config.config,
               timeout: this.config.timeout
             }
@@ -261,7 +279,7 @@ export class ApiService {
         details: {
           message: "Successfully authenticated with SyteLine API",
           config: this.config.config,
-          base_url: this.config.base_url
+          base_url: this.getBaseUrl()
         }
       };
     } catch (error: any) {

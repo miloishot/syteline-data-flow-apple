@@ -164,18 +164,26 @@ const Index = () => {
     setDropdownOptions({});
     
     addLog("info", `Selected job: ${job.job_name}`);
+    addLog("info", `IDO Name: ${job.ido_name}`);
+    addLog("info", `Properties: ${job.query_params.properties}`);
     
     // Load dropdown options for the new job
     loadDropdownsForJob(job);
   };
 
   const loadDropdownsForJob = async (job: Job) => {
-    if (!apiService) return;
+    if (!apiService) {
+      addLog("warning", "API service not available - cannot load dropdown options");
+      return;
+    }
 
     const dropdownFields = job.filterable_fields.filter(f => f.input_type === "dropdown");
-    if (dropdownFields.length === 0) return;
+    if (dropdownFields.length === 0) {
+      addLog("info", "No dropdown fields configured for this job");
+      return;
+    }
 
-    addLog("info", "Loading dropdown options...");
+    addLog("info", `Loading dropdown options for ${dropdownFields.length} fields...`);
     
     // Set loading state for all dropdown fields
     const loadingState: { [key: string]: boolean } = {};
@@ -186,6 +194,8 @@ const Index = () => {
 
     // Load options for each dropdown field
     const optionsPromises = dropdownFields.map(async (field) => {
+      addLog("info", `Loading options for field: ${field.name}`);
+      
       const result = await apiService.getDistinctValues(
         job.ido_name,
         field.name,
@@ -210,11 +220,12 @@ const Index = () => {
           newOptions[result.fieldName] = [];
         } else {
           newOptions[result.fieldName] = result.options;
-          addLog("info", `Loaded ${result.options.length} options for ${result.fieldName}`);
+          addLog("success", `Loaded ${result.options.length} options for ${result.fieldName}`);
         }
       });
 
       setDropdownOptions(newOptions);
+      addLog("success", "Dropdown options loaded successfully");
     } catch (error: any) {
       addLog("error", `Failed to load dropdown options: ${error.message}`);
     } finally {
