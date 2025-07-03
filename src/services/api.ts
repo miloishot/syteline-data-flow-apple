@@ -79,7 +79,7 @@ export class ApiService {
       if (error.name === 'TimeoutError') {
         errorMessage = "Request timeout - server may be slow or unreachable";
       } else if (error.message.includes('Failed to fetch')) {
-        errorMessage = `Cannot reach server at ${this.url}. This might be due to:\n• CORS policy blocking the request\n• Server not responding\n• Network connectivity issues\n• Invalid server URL`;
+        errorMessage = `Cannot reach server at ${url}. This might be due to:\n• CORS policy blocking the request\n• Server not responding\n• Network connectivity issues\n• Invalid server URL`;
       } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
         errorMessage = "Invalid username or password for SyteLine system";
       } else if (error.message.includes('404')) {
