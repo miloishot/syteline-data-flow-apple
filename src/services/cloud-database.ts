@@ -69,9 +69,9 @@ export class CloudDatabaseService {
     return data?.map(row => ({
       job_name: row.job_name,
       ido_name: row.ido_name,
-      query_params: row.query_params,
+      query_params: row.query_params as any,
       output_format: row.output_format,
-      filterable_fields: row.filterable_fields
+      filterable_fields: row.filterable_fields as any
     })) || [];
   }
 

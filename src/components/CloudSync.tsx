@@ -165,9 +165,11 @@ export function CloudSync({ onJobsSync, onSettingsSync }: CloudSyncProps) {
 
   const loadExecutionHistory = async () => {
     try {
-      const { data, error } = await CloudDatabaseService.getExecutionHistory(20);
-      if (!error && data) {
-        setExecutionHistory(data);
+      const result = await CloudDatabaseService.getExecutionHistory(20);
+      if (Array.isArray(result)) {
+        setExecutionHistory(result);
+      } else if (result && !result.error && result.data) {
+        setExecutionHistory(result.data);
       }
     } catch (error) {
       console.error("Failed to load execution history:", error);

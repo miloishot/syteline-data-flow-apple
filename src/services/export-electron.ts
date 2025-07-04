@@ -36,13 +36,22 @@ export class ElectronExportService extends ExportService {
     let filters: any[];
 
     if (outputFormat.toLowerCase() === "csv") {
-      data = this.convertToCSV(items);
+      // Create CSV data directly
+      const headers = Object.keys(items[0]);
+      const csvRows = [headers.join(",")];
+      csvRows.push(...items.map(item => 
+        headers.map(header => `"${item[header] || ""}"`).join(",")
+      ));
+      data = csvRows.join("\n");
       filters = [
         { name: 'CSV Files', extensions: ['csv'] },
         { name: 'All Files', extensions: ['*'] }
       ];
     } else if (outputFormat.toLowerCase() === "xlsx") {
-      const workbook = this.convertToXLSX(items);
+      // Create XLSX data directly
+      const worksheet = XLSX.utils.json_to_sheet(items);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
       const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'binary' });
       data = excelBuffer;
       filters = [
