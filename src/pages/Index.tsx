@@ -1,42 +1,36 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { LoginForm } from "@/components/LoginForm";
 import { JobSelector } from "@/components/JobSelector";
 import { FilterPanel } from "@/components/FilterPanel";
 import { OutputPanel } from "@/components/OutputPanel";
-import { ConfigurationModal } from "@/components/ConfigurationModal";
-import { Play, Settings, TestTube, LogOut, Plus, Edit } from "lucide-react";
+import { CloudSync } from "@/components/CloudSync";
+import { Play, TestTube, Settings, Database } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Import all our services
-import { CredentialsService } from "@/services/encryption";
+// Import services
+import { CloudDatabaseService } from "@/services/cloud-database";
+import { GlobalConfigService } from "@/services/global-config";
 import { ApiService } from "@/services/api";
-import { JobService, SettingsService } from "@/services/storage";
 import { ExportService, FilterUtils } from "@/services/export";
 import type { Job, LogEntry, FilterValues, ApiConfig, UserCredentials } from "@/types";
 
 const Index = () => {
-  // Authentication state - this is really just "credentials loaded" state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [apiService, setApiService] = useState<ApiService | null>(null);
-  const [currentCredentials, setCurrentCredentials] = useState<{ api: ApiConfig; user: UserCredentials } | null>(null);
-
   // Application state
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [outputDirectory, setOutputDirectory] = useState<string>(() => 
-    SettingsService.getSetting("output_dir", "/output")
-  );
+  const [outputDirectory, setOutputDirectory] = useState<string>("/output");
   const [filterValues, setFilterValues] = useState<FilterValues>({});
   const [dropdownOptions, setDropdownOptions] = useState<{ [key: string]: string[] }>({});
   const [loadingDropdowns, setLoadingDropdowns] = useState<{ [key: string]: boolean }>({});
+  
+  // Global configuration
+  const [globalConfig, setGlobalConfig] = useState<any>({});
+  const [apiService, setApiService] = useState<ApiService | null>(null);
   
   // Job execution state
   const [isRunning, setIsRunning] = useState(false);
@@ -54,103 +48,112 @@ const Index = () => {
 
   const { toast } = useToast();
 
-  // Initialize jobs on component mount
+  // Initialize application
   useEffect(() => {
-    const loadedJobs = JobService.getJobs();
-    setJobs(loadedJobs);
+    initializeApp();
   }, []);
+
+  const initializeApp = async () => {
+    try {
+      // Load global configuration
+      await GlobalConfigService.preloadConfigs();
+      const config = await GlobalConfigService.getDefaultApiConfig();
+      setGlobalConfig(config);
+      
+      // Initialize API service with global config
+      if (config.base_url) {
+        const apiConfig: ApiConfig = {
+          base_url: config.base_url,
+          config: config.config_name,
+          timeout: config.timeout,
+          retry_count: 3,
+          retry_delay: 1
+        };
+        
+        // For now, we'll need user credentials - this will be handled by the auth system
+        const userCredentials: UserCredentials = {
+          username: "", // Will be set when user configures
+          password: ""
+        };
+        
+        // Don't initialize API service until user provides credentials
+        addLog("info", "Application initialized with global configuration");
+        addLog("info", `Default server: ${config.base_url}`);
+        addLog("info", `Default config: ${config.config_name}`);
+      }
+      
+      // Load jobs from cloud
+      await loadJobsFromCloud();
+      
+    } catch (error: any) {
+      addLog("error", `Failed to initialize application: ${error.message}`);
+    }
+  };
+
+  const loadJobsFromCloud = async () => {
+    try {
+      const cloudJobs = await CloudDatabaseService.getJobs();
+      if (cloudJobs.length > 0) {
+        setJobs(cloudJobs);
+        addLog("success", `Loaded ${cloudJobs.length} jobs from cloud storage`);
+      } else {
+        // Load default jobs if none in cloud
+        const defaultJobs = getDefaultJobs();
+        setJobs(defaultJobs);
+        addLog("info", "Using default job configurations");
+      }
+    } catch (error: any) {
+      addLog("warning", `Could not load jobs from cloud: ${error.message}`);
+      // Fallback to default jobs
+      const defaultJobs = getDefaultJobs();
+      setJobs(defaultJobs);
+    }
+  };
+
+  const getDefaultJobs = (): Job[] => {
+    return [
+      {
+        job_name: "Staging_Area_Label",
+        ido_name: "OPSIT_RS_QCInspIps",
+        query_params: {
+          properties: "Name,Lot,rcvd_qty,CreateDate,Item,TransDate,u_m,itmDescription,Job,overview",
+          recordCap: 100
+        },
+        output_format: "csv",
+        filterable_fields: [
+          {
+            name: "Lot",
+            prompt: "Select Lot",
+            type: "string",
+            operator: "=",
+            input_type: "dropdown",
+            cache_duration: 300
+          },
+          {
+            name: "Item",
+            prompt: "Select Item code",
+            type: "string",
+            operator: "=",
+            input_type: "dropdown",
+            cache_duration: 300
+          },
+          {
+            name: "TransDate",
+            prompt: "Select Transaction Date",
+            type: "date",
+            operator: ">=",
+            input_type: "calendar"
+          }
+        ]
+      }
+    ];
+  };
 
   // Helper function to add logs
   const addLog = (type: LogEntry["type"], message: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setLogs(prev => [...prev, { timestamp, message, type }]);
     console.log(`[${type.toUpperCase()}] ${message}`);
-  };
-
-  // Handle opening configuration modal
-  const handleOpenConfig = () => {
-    console.log("Opening configuration modal");
-    setShowConfigModal(true);
-  };
-
-  // Handle closing configuration modal
-  const handleCloseConfig = () => {
-    console.log("Closing configuration modal");
-    setShowConfigModal(false);
-  };
-
-  // Load credentials using encryption password - this is NOT a login, just decrypting stored config
-  const handleLogin = async (credentials: { username: string; password: string }) => {
-    setIsLoggingIn(true);
-    
-    try {
-      // Check if credentials exist
-      if (!CredentialsService.hasCredentials()) {
-        throw new Error("No configuration found. Please configure your connection first.");
-      }
-
-      // The password field in the form is actually the ENCRYPTION password
-      const encryptionPassword = credentials.password;
-      
-      // Try to load encrypted credentials using the encryption password
-      addLog("info", "Loading encrypted credentials...");
-      const decryptedCredentials = await CredentialsService.loadCredentials(encryptionPassword);
-      
-      // Verify username matches the stored username (from the encrypted config)
-      if (decryptedCredentials.user.username !== credentials.username) {
-        throw new Error("Username does not match stored credentials");
-      }
-
-      addLog("info", `Loaded credentials for user: ${decryptedCredentials.user.username}`);
-      addLog("info", `API Base URL: ${decryptedCredentials.api.base_url}`);
-      addLog("info", `API Config: ${decryptedCredentials.api.config}`);
-
-      // Create API service instance with the decrypted credentials
-      const api = new ApiService(decryptedCredentials.api, decryptedCredentials.user);
-      
-      setApiService(api);
-      setCurrentCredentials(decryptedCredentials);
-      setIsAuthenticated(true);
-      
-      addLog("success", "Credentials loaded successfully - ready to make API calls");
-      toast({
-        title: "Welcome back!",
-        description: "Credentials loaded successfully",
-      });
-    } catch (error: any) {
-      console.error("Credential loading error:", error);
-      addLog("error", `Failed to load credentials: ${error.message}`);
-      
-      // Provide more helpful error messages
-      let errorMessage = error.message;
-      if (error.message.includes("Failed to load credentials")) {
-        errorMessage = "Invalid encryption password. Please enter the password you used when configuring the connection.";
-      } else if (error.message.includes("Username does not match")) {
-        errorMessage = "Username does not match the configured credentials. Please check your username.";
-      }
-      
-      toast({
-        title: "Failed to Load Credentials",
-        description: errorMessage,
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setApiService(null);
-    setCurrentCredentials(null);
-    setSelectedJob(null);
-    setFilterValues({});
-    setLogs([]);
-    setDropdownOptions({});
-    toast({
-      title: "Logged out",
-      description: "Session ended successfully",
-    });
   };
 
   const handleJobSelect = (job: Job) => {
@@ -168,7 +171,9 @@ const Index = () => {
     addLog("info", `Properties: ${job.query_params.properties}`);
     
     // Load dropdown options for the new job
-    loadDropdownsForJob(job);
+    if (apiService) {
+      loadDropdownsForJob(job);
+    }
   };
 
   const loadDropdownsForJob = async (job: Job) => {
@@ -234,10 +239,19 @@ const Index = () => {
   };
 
   const handleRunJob = async () => {
-    if (!selectedJob || !apiService) {
+    if (!selectedJob) {
       toast({
         title: "Cannot Run Job",
-        description: "Please select a job and ensure credentials are loaded",
+        description: "Please select a job first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!apiService) {
+      toast({
+        title: "API Not Configured",
+        description: "Please configure your API connection first",
         variant: "destructive",
       });
       return;
@@ -247,7 +261,7 @@ const Index = () => {
     addLog("info", `Starting job: ${selectedJob.job_name}`);
     
     try {
-      // Build filter string using the same logic as Python
+      // Build filter string
       const filterResult = FilterUtils.buildFiltersFromValues(selectedJob.filterable_fields, filterValues);
       if (filterResult.error) {
         addLog("error", filterResult.error);
@@ -335,8 +349,14 @@ const Index = () => {
       addLog("success", `Successfully exported ${exportResult.recordCount} records`);
       addLog("info", `File saved: ${exportResult.filePath}`);
       
-      // Save output directory setting
-      SettingsService.saveSetting("output_dir", outputDirectory);
+      // Save execution history to cloud
+      await CloudDatabaseService.saveExecutionHistory(
+        selectedJob.job_name,
+        filterValues,
+        exportResult.recordCount,
+        exportResult.filePath,
+        'success'
+      );
       
       toast({
         title: "Export Complete!",
@@ -345,6 +365,19 @@ const Index = () => {
 
     } catch (error: any) {
       addLog("error", `Export failed: ${error.message}`);
+      
+      // Save error to execution history
+      if (selectedJob) {
+        await CloudDatabaseService.saveExecutionHistory(
+          selectedJob.job_name,
+          filterValues,
+          0,
+          '',
+          'error',
+          error.message
+        );
+      }
+      
       toast({
         title: "Export Failed",
         description: error.message,
@@ -359,7 +392,7 @@ const Index = () => {
     if (!apiService) {
       toast({
         title: "Not Connected",
-        description: "Please load credentials first",
+        description: "Please configure API connection first",
         variant: "destructive",
       });
       return;
@@ -381,9 +414,6 @@ const Index = () => {
         });
       } else {
         addLog("error", `API connection test failed: ${result.error}`);
-        if (result.details) {
-          addLog("info", `Test details: ${JSON.stringify(result.details, null, 2)}`);
-        }
         toast({
           title: "Connection Failed",
           description: result.error || "Unable to connect to the API",
@@ -418,78 +448,22 @@ const Index = () => {
     setLogs([]);
   };
 
-  const handleSaveConfiguration = async (configData: any) => {
-    try {
-      addLog("info", "Saving configuration...");
-      addLog("info", `API Base URL: ${configData.api.base_url}`);
-      addLog("info", `API Config: ${configData.api.config}`);
-      addLog("info", `Username: ${configData.user.username}`);
-      
-      // Convert the config data to the format expected by our services
-      const credentials = {
-        api: {
-          base_url: configData.api.base_url,
-          config: configData.api.config,
-          timeout: parseInt(configData.api.timeout) || 30,
-          retry_count: parseInt(configData.api.retry_count) || 3,
-          retry_delay: parseInt(configData.api.retry_delay) || 1,
-        },
-        user: {
-          username: configData.user.username,
-          password: configData.user.password,
-        },
-        logging: {
-          level: "INFO"
-        }
-      };
+  const handleJobsSync = (syncedJobs: Job[]) => {
+    setJobs(syncedJobs);
+    addLog("success", `Synced ${syncedJobs.length} jobs from cloud`);
+  };
 
-      // Save encrypted credentials
-      await CredentialsService.saveCredentials(credentials, configData.security.encryption_password);
-      
-      addLog("success", "Configuration saved successfully");
-      
-      toast({
-        title: "Configuration Saved",
-        description: "Your API configuration has been saved securely. You can now load credentials using your username and the encryption password you just set.",
-      });
-    } catch (error: any) {
-      addLog("error", `Failed to save configuration: ${error.message}`);
-      throw error; // Re-throw so the modal can handle it
+  const handleSettingsSync = (settings: any) => {
+    if (settings.output_dir) {
+      setOutputDirectory(settings.output_dir);
     }
+    addLog("success", "Settings synced from cloud");
   };
 
   // Get available columns for modification
   const availableColumns = selectedJob 
     ? selectedJob.query_params.properties.split(",").map(col => col.trim())
     : [];
-
-  if (!isAuthenticated) {
-    return (
-      <>
-        <LoginForm 
-          onLogin={handleLogin} 
-          onOpenConfig={handleOpenConfig}
-          isLoading={isLoggingIn}
-        />
-        
-        {/* Configuration Modal - Always render but control visibility with isOpen */}
-        <ConfigurationModal
-          isOpen={showConfigModal}
-          onClose={handleCloseConfig}
-          onSave={handleSaveConfiguration}
-          initialConfig={currentCredentials ? {
-            api: {
-              ...currentCredentials.api,
-              timeout: currentCredentials.api.timeout.toString(),
-              retry_count: currentCredentials.api.retry_count.toString(),
-              retry_delay: currentCredentials.api.retry_delay.toString(),
-            },
-            user: currentCredentials.user
-          } : undefined}
-        />
-      </>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/50 to-background p-6">
@@ -514,28 +488,12 @@ const Index = () => {
               <TestTube className="w-4 h-4" />
               Test Connection
             </Button>
-            <Button
-              variant="ghost"
-              onClick={handleOpenConfig}
-              className="flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Settings
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={handleLogout}
-              className="flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              Logout
-            </Button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Left Column - Job Selection & Filters */}
         <div className="lg:col-span-1 space-y-6">
           <div className="animate-fade-in" style={{ animationDelay: "0.1s" }}>
@@ -544,10 +502,7 @@ const Index = () => {
               selectedJob={selectedJob}
               onJobSelect={handleJobSelect}
               outputDirectory={outputDirectory}
-              onOutputDirectoryChange={(dir) => {
-                setOutputDirectory(dir);
-                SettingsService.saveSetting("output_dir", dir);
-              }}
+              onOutputDirectoryChange={setOutputDirectory}
               onBrowseDirectory={() => {
                 toast({
                   title: "Directory Selection",
@@ -577,7 +532,7 @@ const Index = () => {
               <Card className="glass-card">
                 <CardHeader className="pb-4">
                   <CardTitle className="flex items-center gap-2 text-lg">
-                    <Plus className="w-5 h-5 text-primary" />
+                    <Settings className="w-5 h-5 text-primary" />
                     Add Custom Column
                   </CardTitle>
                 </CardHeader>
@@ -591,7 +546,7 @@ const Index = () => {
                     <Label htmlFor="add-column">Add new column to output</Label>
                   </div>
                   {addColumn && (
-                    <div className="grid grid-cols-2 gap-3 animate-fade-in">
+                    <div className="grid grid-cols-1 gap-3 animate-fade-in">
                       <div className="space-y-2">
                         <Label htmlFor="new-column-name">Column Name</Label>
                         <Input
@@ -621,7 +576,7 @@ const Index = () => {
               <Card className="glass-card">
                 <CardHeader className="pb-4">
                   <CardTitle className="flex items-center gap-2 text-lg">
-                    <Edit className="w-5 h-5 text-primary" />
+                    <Settings className="w-5 h-5 text-primary" />
                     Modify Existing Column
                   </CardTitle>
                 </CardHeader>
@@ -635,7 +590,7 @@ const Index = () => {
                     <Label htmlFor="modify-column">Modify existing column</Label>
                   </div>
                   {modifyColumn && (
-                    <div className="grid grid-cols-2 gap-3 animate-fade-in">
+                    <div className="grid grid-cols-1 gap-3 animate-fade-in">
                       <div className="space-y-2">
                         <Label htmlFor="modify-column-name">Column</Label>
                         <Select value={modifyColumnName} onValueChange={setModifyColumnName}>
@@ -694,7 +649,7 @@ const Index = () => {
           )}
         </div>
 
-        {/* Right Column - Output */}
+        {/* Middle Column - Output */}
         <div className="lg:col-span-2 animate-fade-in" style={{ animationDelay: "0.2s" }}>
           <OutputPanel
             logs={logs}
@@ -704,23 +659,15 @@ const Index = () => {
             onClearLogs={clearLogs}
           />
         </div>
-      </div>
 
-      {/* Configuration Modal - Always render but control visibility with isOpen */}
-      <ConfigurationModal
-        isOpen={showConfigModal}
-        onClose={handleCloseConfig}
-        onSave={handleSaveConfiguration}
-        initialConfig={currentCredentials ? {
-          api: {
-            ...currentCredentials.api,
-            timeout: currentCredentials.api.timeout.toString(),
-            retry_count: currentCredentials.api.retry_count.toString(),
-            retry_delay: currentCredentials.api.retry_delay.toString(),
-          },
-          user: currentCredentials.user
-        } : undefined}
-      />
+        {/* Right Column - Cloud Sync */}
+        <div className="lg:col-span-1 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+          <CloudSync
+            onJobsSync={handleJobsSync}
+            onSettingsSync={handleSettingsSync}
+          />
+        </div>
+      </div>
     </div>
   );
 };
