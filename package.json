@@ -14,7 +14,8 @@
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:8080 && electron .\"",
     "electron:pack": "npm run build && electron-builder",
-    "electron:dist": "npm run build && electron-builder --publish=never"
+    "electron:dist": "npm run build && electron-builder --publish=never",
+    "electron:publish": "npm run build && electron-builder --publish=always"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
